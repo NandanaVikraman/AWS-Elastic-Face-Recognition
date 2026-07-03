@@ -37,6 +37,47 @@ The web tier is extended to hand off the actual recognition work to a scalable a
 - **App tier** (`part-2/app-tier/backend.py`) runs on a fleet of EC2 worker instances (from a custom AMI with the ML model pre-installed). Each worker: pulls one message off the request queue, downloads the image from S3, runs face-recognition inference via a subprocess call to the model code, writes the result to an S3 output bucket, and pushes the result onto the response queue.
 - **Auto-scaling controller** (`part-2/web-tier/controller.py`) — a from-scratch scaling loop (AWS Auto Scaling Groups were disallowed by the assignment) that watches SQS queue depth and starts/stops EC2 app-tier instances accordingly: scales up toward `min(MAX_INSTANCES, pending requests)`, and scales all instances back down to 0 shortly after the queue drains.
 
+## Why these AWS services
+
+- **S3** holds the actual image bytes — cheap, durable object storage, well suited to large binary payloads that don't need to be queried.
+- **SimpleDB** (Part I) gives fast key-value lookups by filename for the emulated recognition results, without the overhead of standing up a full database for what's essentially a static lookup table.
+- **SQS** (Part II) decouples the web tier from the app tier: the web tier doesn't need to know how many workers exist or where they are, it just drops a message and waits. This is what makes the app tier scalable independently of the web tier.
+- Splitting storage (S3) from the request/response signaling (SQS) means the 1KB SQS message-size cap is a non-issue — only the filename crosses the queue, never the image itself.
+
+## AWS Setup (Part II)
+
+The app itself doesn't provision infrastructure — it assumes the following already exists, set up once via the AWS Console/CLI in `us-east-1`:
+
+1. **S3 buckets**: `<ASU ID>-in-bucket`, `<ASU ID>-out-bucket`
+2. **SQS queues**: `<ASU ID>-req-queue` (max message size 1KB), `<ASU ID>-resp-queue`
+3. **SimpleDB domain**: `<ASU ID>-simpleDB` (Part I only)
+4. **IAM role** with S3 + SQS access, attached to both the web-tier and app-tier EC2 instances — the code never hardcodes AWS credentials; `boto3` picks up the instance's attached role automatically
+5. **Web-tier EC2 instance** (`t3.micro`/`t2.micro`), named `web-instance`, with an Elastic IP attached and a security group allowing inbound TCP on 22 (SSH) and 8000 (HTTP)
+6. **App-tier AMI**: a base EC2 instance with the face-recognition model code and weights installed (see [What's not included](#whats-not-included)), turned into a custom AMI via EC2 → Actions → Image → Create Image. `controller.py` launches/starts new app-tier instances from this AMI, tagged `Name=app-tier-instance-*` and `Project=CSE546` so it can find and manage them by tag.
+
+Once the instances are up, run each component in the background so it survives disconnecting your SSH session — e.g. `gunicorn -b 0.0.0.0:8000 server:app` for the web tier under a process manager (systemd service or `pm2`), and `controller.py`/`backend.py` similarly kept alive as background/managed processes.
+
+### Testing
+
+```bash
+curl -X POST -F "inputFile=@test_00.jpg" http://<web-tier-elastic-ip>:8000/
+# → test_00:Paul
+```
+
+### Cleanup
+
+```bash
+# Empty an S3 bucket
+aws s3 rm s3://<ASU ID>-in-bucket --recursive --region us-east-1
+
+# Purge an SQS queue
+aws sqs purge-queue --queue-url <queue-url> --region us-east-1
+
+# Find and terminate app-tier instances by tag
+aws ec2 describe-instances --filters "Name=tag:Project,Values=CSE546" --region us-east-1
+aws ec2 terminate-instances --instance-ids <id1> <id2> --region us-east-1
+```
+
 ## Design notes
 
 - The web tier uses a background thread continuously draining the SQS response queue into a shared results dict, and per-request threading events to wake up the specific HTTP handler waiting on that filename — this avoids polling per-request and keeps response latency low under concurrent load.
