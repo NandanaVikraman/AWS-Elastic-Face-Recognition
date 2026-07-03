@@ -116,7 +116,7 @@ The app tier (`backend.py`) additionally requires the face-recognition model cod
 By design, this repo cannot be run fully end-to-end from a fresh clone, because part of the original assignment intentionally lives outside the submitted code:
 
 - **AWS credentials and the EC2 SSH key** — obviously never committed.
-- **The face-recognition model code and pretrained weights** (`face_recognition.py`, model weights) — provided to the class privately by the course staff (copyright ASU VISA Lab) for use on a custom AMI, and explicitly excluded from what students were allowed to submit. It's not mine to redistribute here. The app tier calls out to this file via subprocess at inference time.
+- **The face-recognition model code and pretrained weights** (`face_recognition.py`, model weights) — provided to the class privately by the course staff (copyright ASU VISA Lab) for use on a custom AMI, and explicitly excluded from what students were allowed to submit. It's not mine to redistribute here. The app tier calls out to this file via subprocess at inference time. See [CSE546-Cloud-Computing/CSE546-SPRING-2025 (branch `model`)](https://github.com/CSE546-Cloud-Computing/CSE546-SPRING-2025/tree/model) for the same model shared across course offerings.
 - **AWS infrastructure provisioning** (S3 buckets, SQS queues, SimpleDB domain, security groups, IAM roles, the custom AMI) — set up manually via the AWS Console/CLI per the assignment, not captured in any script.
 
 ## Tech Stack
