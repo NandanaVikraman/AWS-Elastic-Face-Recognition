@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.env
+*.pem
+credentials/
+credentials.txt
+*.csv
